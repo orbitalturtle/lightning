@@ -157,10 +157,16 @@ class GrpcGenerator(IGenerator):
 
         for method in service.methods:
             mname = method_name_overrides.get(method.name, method.name)
-            self.write(
-                f"	rpc {mname}({method.request.typename}) returns ({method.response.typename}) {{}}\n",
-                cleanup=False,
-            )
+            if method.notification:
+                self.write(
+                    f"       rpc {mname}({method.request.typename}) returns (stream {method.response.typename}) {{}}\n",
+                    cleanup=False,
+                )
+            else:
+                self.write(
+                    f"	rpc {mname}({method.request.typename}) returns ({method.response.typename}) {{}}\n",
+                    cleanup=False,
+                )
 
         self.write(f"""}}
         """)
@@ -331,12 +337,14 @@ class GrpcConverterGenerator(IGenerator):
     def generate_requests(self, service):
         for meth in service.methods:
             req = meth.request
-            self.generate_composite("requests", req)
+            if not meth.notification:
+                self.generate_composite("requests", req)
 
     def generate_responses(self, service):
         for meth in service.methods:
             res = meth.response
-            self.generate_composite("responses", res)
+            if not meth.notification:
+                self.generate_composite("responses", res)
 
     def generate(self, service: Service) -> None:
         self.write("""
@@ -463,21 +471,28 @@ class GrpcServerGenerator(GrpcConverterGenerator):
         use anyhow::Result;
         use std::path::{{Path, PathBuf}};
         use cln_rpc::model::requests;
+        use futures::StreamExt;
+        use futures_core::stream::Stream;
         use log::{{debug, trace}};
+        use std::pin::Pin;
+        use tokio::sync::broadcast;
+        use tokio_stream::wrappers::BroadcastStream;
         use tonic::{{Code, Status}};
 
         #[derive(Clone)]
         pub struct Server
         {{
             rpc_path: PathBuf,
+            event_channel: broadcast::Sender<pb::InvoicecreationnotificationResponse>,
         }}
 
         impl Server
         {{
-            pub async fn new(path: &Path) -> Result<Self>
+            pub async fn new(path: &Path, event_channel: broadcast::Sender<pb::InvoicecreationnotificationResponse>) -> Result<Self>
             {{
                 Ok(Self {{
                     rpc_path: path.to_path_buf(),
+                    event_channel: event_channel,
                 }})
             }}
         }}
@@ -491,38 +506,61 @@ class GrpcServerGenerator(GrpcConverterGenerator):
             mname = method_name_overrides.get(method.name, method.name)
             # Tonic will convert to snake-case, so we have to do it here too
             name = re.sub(r'(?<!^)(?=[A-Z])', '_', mname).lower()
-            self.write(f"""\
-            async fn {name}(
-                &self,
-                request: tonic::Request<pb::{method.request.typename}>,
-            ) -> Result<tonic::Response<pb::{method.response.typename}>, tonic::Status> {{
-                let req = request.into_inner();
-                let req: requests::{method.request.typename} = req.into();
-                debug!("Client asked for {name}");
-                trace!("{name} request: {{:?}}", req);
-                let mut rpc = ClnRpc::new(&self.rpc_path)
-                    .await
-                    .map_err(|e| Status::new(Code::Internal, e.to_string()))?;
-                let result = rpc.call(Request::{method.name}(req))
-                    .await
-                    .map_err(|e| Status::new(
-                       Code::Unknown,
-                       format!("Error calling method {method.name}: {{:?}}", e)))?;
-                match result {{
-                    Response::{method.name}(r) => {{
-                       trace!("{name} response: {{:?}}", r);
-                       Ok(tonic::Response::new(r.into()))
-                    }},
-                    r => Err(Status::new(
-                        Code::Internal,
-                        format!(
-                            "Unexpected result {{:?}} to method call {method.name}",
-                            r
-                        )
-                    )),
-                }}
-
-            }}\n\n""", numindent=0)
+            if method.notification:
+                self.write(f"""\
+                type {mname}Stream = Pin<Box<dyn Stream<Item = Result<pb::{method.response.typename}, tonic::Status>> + Send  + 'static + Sync >>;
+                
+                async fn {name}(
+                    &self,
+                    _request: tonic::Request<pb::{method.request.typename}>,
+                ) -> Result<tonic::Response<Self::{mname}Stream>, tonic::Status> {{
+                    debug!("Client asked for {name}");
+                
+                    // Subscribe to event channel.
+                    let rx = self.event_channel.subscribe();
+                    let bc_stream = BroadcastStream::new(rx)
+                        .filter_map(|item| async move {{
+                            item.ok()
+                        }})
+                        .map(Ok);
+                
+                    let stream: Self::{mname}Stream = Box::pin(bc_stream);
+                
+                    Ok(tonic::Response::new(stream))
+                }}\n\n""", numindent=0)
+            else:
+                self.write(f"""\
+                async fn {name}(
+                    &self,
+                    request: tonic::Request<pb::{method.request.typename}>,
+                ) -> Result<tonic::Response<pb::{method.response.typename}>, tonic::Status> {{
+                    let req = request.into_inner();
+                    let req: requests::{method.request.typename} = req.into();
+                    debug!("Client asked for {name}");
+                    trace!("{name} request: {{:?}}", req);
+                    let mut rpc = ClnRpc::new(&self.rpc_path)
+                        .await
+                        .map_err(|e| Status::new(Code::Internal, e.to_string()))?;
+                    let result = rpc.call(Request::{method.name}(req))
+                        .await
+                        .map_err(|e| Status::new(
+                           Code::Unknown,
+                           format!("Error calling method {method.name}: {{:?}}", e)))?;
+                    match result {{
+                        Response::{method.name}(r) => {{
+                           trace!("{name} response: {{:?}}", r);
+                           Ok(tonic::Response::new(r.into()))
+                        }},
+                        r => Err(Status::new(
+                            Code::Internal,
+                            format!(
+                                "Unexpected result {{:?}} to method call {method.name}",
+                                r
+                            )
+                        )),
+                    }}
+                
+                }}\n\n""", numindent=0)
 
         self.write(f"""\
         }}

@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 
 def path2type(path):
     typename = "".join([s.capitalize() for s in path.replace("[]", "").split(".")])
+
     return typename
 
 
@@ -85,10 +86,11 @@ class Service:
 
 
 class Method:
-    def __init__(self, name: str, request: Field, response: Field):
+    def __init__(self, name: str, request: Field, response: Field, notification: bool):
         self.name = name
         self.request = request
         self.response = response
+        self.notification = notification
 
 
 class CompositeField(Field):

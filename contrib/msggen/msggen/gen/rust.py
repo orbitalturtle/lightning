@@ -226,10 +226,11 @@ class RustGenerator(IGenerator):
         """)
 
         for meth in service.methods:
-            req = meth.request
-            _, decl = gen_composite(req)
-            self.write(decl, numindent=1)
-            self.generate_request_trait_impl(meth)
+            if not meth.notification:
+                req = meth.request
+                _, decl = gen_composite(req)
+                self.write(decl, numindent=1)
+                self.generate_request_trait_impl(meth)
 
         self.write("}\n\n")
 
@@ -259,10 +260,11 @@ class RustGenerator(IGenerator):
         """)
 
         for meth in service.methods:
-            res = meth.response
-            _, decl = gen_composite(res)
-            self.write(decl, numindent=1)
-            self.generate_response_trait_impl(meth)
+            if not meth.notification:
+                res = meth.response
+                _, decl = gen_composite(res)
+                self.write(decl, numindent=1)
+                self.generate_response_trait_impl(meth)
 
         self.write("}\n\n")
 
@@ -296,7 +298,8 @@ class RustGenerator(IGenerator):
         """)
 
         for method in service.methods:
-            self.write(f"{method.name}(requests::{method.request.typename}),\n", numindent=1)
+            if not method.notification:
+                self.write(f"{method.name}(requests::{method.request.typename}),\n", numindent=1)
 
         self.write(f"""\
         }}
@@ -308,11 +311,11 @@ class RustGenerator(IGenerator):
         """)
 
         for method in service.methods:
-            self.write(f"{method.name}(responses::{method.response.typename}),\n", numindent=1)
+            if not method.notification:
+                self.write(f"{method.name}(responses::{method.response.typename}),\n", numindent=1)
 
         self.write(f"""\
         }}
-
         """)
 
     def generate_request_trait(self):

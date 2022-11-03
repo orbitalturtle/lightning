@@ -17,10 +17,15 @@ def load_jsonrpc_method(name, schema_dir: str = None):
         base_path = (repo_root() / "doc" / "schemas").resolve()
     else:
         base_path = schema_dir
+
     req_file = base_path / f"{name.lower()}.request.json"
     resp_file = base_path / f"{name.lower()}.schema.json"
     request = CompositeField.from_js(json.load(open(req_file)), path=name)
     response = CompositeField.from_js(json.load(open(resp_file)), path=name)
+
+    notification = False
+    if name.endswith("Notification"):
+         notification = True
 
     # Normalize the method request and response typename so they no
     # longer conflict.
@@ -31,6 +36,7 @@ def load_jsonrpc_method(name, schema_dir: str = None):
         name,
         request=request,
         response=response,
+        notification=notification,
     )
 
 
