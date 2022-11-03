@@ -118,7 +118,6 @@ pub enum Response {
 	Stop(responses::StopResponse),
 }
 
-
 pub trait IntoRequest: Into<Request> {
     type Response: TryFrom<Response, Error = TryFromResponseError>;
 }

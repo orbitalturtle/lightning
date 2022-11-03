@@ -882,3 +882,11 @@ def signmessage2py(m):
 def stop2py(m):
     return remove_default({
     })
+
+
+def invoicecreationnotification2py(m):
+    return remove_default({
+        "label": m.label,  # PrimitiveField in generate_composite
+        "preimage": hexlify(m.preimage),  # PrimitiveField in generate_composite
+        "amount_msat": amount2msat(m.amount_msat),  # PrimitiveField in generate_composite
+    })

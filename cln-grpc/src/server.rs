@@ -4,21 +4,28 @@ use cln_rpc::{Request, Response, ClnRpc};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 use cln_rpc::model::requests;
+use futures::StreamExt;
+use futures_core::stream::Stream;
 use log::{debug, trace};
+use std::pin::Pin;
+use tokio::sync::broadcast;
+use tokio_stream::wrappers::BroadcastStream;
 use tonic::{Code, Status};
 
 #[derive(Clone)]
 pub struct Server
 {
     rpc_path: PathBuf,
+    event_channel: broadcast::Sender<pb::InvoicecreationnotificationResponse>,
 }
 
 impl Server
 {
-    pub async fn new(path: &Path) -> Result<Self>
+    pub async fn new(path: &Path, event_channel: broadcast::Sender<pb::InvoicecreationnotificationResponse>) -> Result<Self>
     {
         Ok(Self {
             rpc_path: path.to_path_buf(),
+            event_channel: event_channel,
         })
     }
 }
@@ -1528,6 +1535,27 @@ async fn stop(
         )),
     }
 
+}
+
+type InvoiceCreationNotificationStream = Pin<Box<dyn Stream<Item = Result<pb::InvoicecreationnotificationResponse, tonic::Status>> + Send  + 'static + Sync >>;
+
+async fn invoice_creation_notification(
+    &self,
+    _request: tonic::Request<pb::InvoicecreationnotificationRequest>,
+) -> Result<tonic::Response<Self::InvoiceCreationNotificationStream>, tonic::Status> {
+    debug!("Client asked for invoice_creation_notification");
+
+    // Subscribe to event channel.
+    let rx = self.event_channel.subscribe();
+    let bc_stream = BroadcastStream::new(rx)
+        .filter_map(|item| async move {
+            item.ok()
+        })
+        .map(Ok);
+
+    let stream: Self::InvoiceCreationNotificationStream = Box::pin(bc_stream);
+
+    Ok(tonic::Response::new(stream))
 }
 
 }

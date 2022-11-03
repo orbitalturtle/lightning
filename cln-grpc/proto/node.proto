@@ -55,6 +55,7 @@ service Node {
 	rpc SetChannel(SetchannelRequest) returns (SetchannelResponse) {}
 	rpc SignMessage(SignmessageRequest) returns (SignmessageResponse) {}
 	rpc Stop(StopRequest) returns (StopResponse) {}
+       rpc InvoiceCreationNotification(InvoicecreationnotificationRequest) returns (stream InvoicecreationnotificationResponse) {}
 }
 
 message GetinfoRequest {
@@ -1329,4 +1330,13 @@ message StopRequest {
 }
 
 message StopResponse {
+}
+
+message InvoicecreationnotificationRequest {
+}
+
+message InvoicecreationnotificationResponse {
+	string label = 1;
+	optional bytes preimage = 2;
+	Amount amount_msat = 3;
 }
